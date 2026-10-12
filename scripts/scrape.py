@@ -25,12 +25,18 @@ BAD_NAME = re.compile(
     r"\b(digital|marketing|seo|advertis\w*|agency|agencies|web\s?(design\w*|develop\w*|solutions?)|website\w*|software|"
     r"info\s?tech|infotech|it\s?(solutions?|services?)|technolog\w*|technologies|tech|media|branding|creatives?|"
     r"app\s?develop\w*|staffing|recruit\w*|placements?|manpower|consultanc\w*|consultants?|hr\s?solutions?|talent|"
-    r"headhunt\w*|outsourc\w*)\b",
+    r"headhunt\w*|outsourc\w*|solutions?|systems?|infosystems?|studios?|labs?|webtech|"
+    r"netsol\w*|softech|softwares?|innovations?|ventures?|infra\w*|digitals?|online|freelanc\w*|dev|coders?|cloud|"
+    r"data|ai|automation|apps?)\b",
     re.I,
 )
 BAD_DESC = re.compile(
     r"(digital marketing (agency|company)|marketing agency|advertising agency|seo (company|agency)|"
-    r"web (design|development) (company|agency)|software (development )?company|we are a .{0,40}(agency|consultancy|staffing))",
+    r"web (design|development) (company|agency|firm|services?)|software (development )?(company|firm|services?)|"
+    r"(it|digital|creative|branding|media|design|development) (company|firm|studio|services|solutions)|"
+    r"we are a .{0,60}(agency|consultancy|staffing|studio|software|it company|development company)|"
+    r"our clients|for our clients|client projects|on behalf of (our )?clients|hiring for (our )?client|"
+    r"(staffing|recruitment|placement) (agency|firm|company)|freelance(rs)? (platform|marketplace))",
     re.I,
 )
 
