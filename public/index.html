@@ -125,7 +125,7 @@ function vLeads(){
   const lf=S.lastFetch?'Last run: '+S.lastFetch.added+' added, '+S.lastFetch.skippedAgencies+' agencies removed, '+(S.lastFetch.noPhone||0)+' without a phone'+(S.lastFetch.errors?', '+S.lastFetch.errors+' failed lookups ('+S.lastFetch.lastError+')':'')+', '+when(S.lastFetch.at):'No run yet. Leads arrive daily at about 9:00 AM IST.';
   let h='<div class="card plain"><div class="row"><div class="grow"><div class="name">Leads</div><div class="sub">'+esc(lf)+'</div></div>'+
     '<button class="btn" data-act="fetch" '+(S.busy?'disabled':'')+'>'+(S.busy?'Starting...':'Fetch leads now')+'</button>'+
-    '<button class="btn alt" data-act="csv">Download CSV for Rasen</button></div></div>';
+    '<button class="btn alt" data-act="csv">Download CSV for Rasen</button><button class="btn alt" data-act="csvall">Download all leads</button></div></div>';
   h+='<div class="chips">'+[['new','New'],['called','Called'],['skipped','Skipped'],['all','All']].map(x=>'<button class="chip '+(f===x[0]?'on':'')+'" data-act="lf" data-id="'+x[0]+'">'+x[1]+'</button>').join('')+'</div>';
   h+='<div class="chips">'+[['all','All dates ('+S.leads.length+')']].concat(di.keys.slice(0,14).map(k=>[k,dlabel(k)+' ('+di.c[k]+')'])).map(x=>'<button class="chip '+(sel===x[0]?'on':'')+'" data-act="ld" data-id="'+x[0]+'">'+x[1]+'</button>').join('')+'</div>';
   if(!list.length)return h+'<div class="empty">No leads here yet. Tap "Fetch leads now". New leads show up after 5 to 15 minutes.</div>';
@@ -133,10 +133,10 @@ function vLeads(){
     const t=l.temperature&&l.status==='called'?' <span class="tag '+esc(l.temperature)+'">'+esc(TEMPS[l.temperature]||'')+'</span>':'';
     return '<div class="card"><div class="name">'+esc(l.name)+t+'</div>'+
       '<div class="sub">'+(l.jobTitle?'Hiring: '+(l.jobUrl?'<a href="'+esc(l.jobUrl)+'" target="_blank" rel="noopener">'+esc(l.jobTitle)+'</a>':esc(l.jobTitle)):esc(l.category))+(l.source?' on '+esc(l.source):'')+(l.city?' | '+esc(l.city):'')+'</div>'+
-      '<div class="sub"><a href="tel:'+esc(l.phone)+'">'+esc(l.phone)+'</a> '+(l.website?'<a href="'+esc(l.website)+'" target="_blank" rel="noopener">website</a>':'<span class="tag flag">No website</span>')+'</div>'+
+      '<div class="sub">'+(l.phone?'<a href="tel:'+esc(l.phone)+'">'+esc(l.phone)+'</a>':'<span class="tag flag">No phone yet</span> <a href="https://www.google.com/search?q='+encodeURIComponent(l.name+' '+(l.city||'')+' contact number')+'" target="_blank" rel="noopener">Find phone</a>')+' '+(l.website?'<a href="'+esc(l.website)+'" target="_blank" rel="noopener">website</a>':'<span class="tag flag">No website</span>')+'</div>'+
       (l.error?'<div class="sub" style="color:var(--hot)">'+esc(l.error)+'</div>':'')+
       '<div class="row" style="margin-top:8px">'+
-      (l.status==='new'||l.status==='error'||l.status==='skipped'?'<button class="btn sm" data-act="aicall" data-id="'+esc(l.id)+'">Call with AI</button>':'<span class="tag">'+esc(l.status)+'</span>')+
+      (l.status==='new'||l.status==='error'||l.status==='skipped'?(l.phone?'<button class="btn sm" data-act="aicall" data-id="'+esc(l.id)+'">Call with AI</button>':'<button class="btn sm" data-act="addphone" data-id="'+esc(l.id)+'">Add phone</button>'):'<span class="tag">'+esc(l.status)+'</span>')+
       (l.status==='new'?'<button class="btn sm alt" data-act="skip" data-id="'+esc(l.id)+'">Skip</button>':'')+
       (l.status==='skipped'||l.status==='error'?'<button class="btn sm alt" data-act="unskip" data-id="'+esc(l.id)+'">Mark new</button>':'')+
       '</div></div>';
@@ -262,10 +262,15 @@ document.addEventListener('click',async e=>{
     else if(a==='logout'){localStorage.removeItem('pw');pw='';location.reload()}
     else if(a==='fetch'){S.busy=true;render();try{await api('fetch-leads',{});toast('Started. New leads will appear here in 5 to 15 minutes.')}finally{S.busy=false}await load()}
     else if(a==='aicall'){b.disabled=true;const lead=S.leads.find(l=>l.id===id);const r=await api('call',{leadId:id});toast('Calling now');S.tab='call';startLive(r.callId,lead&&lead.name||r.name,lead&&lead.phone);await load()}
-    else if(a==='csv'){const dsel=dateInfo().sel;const rows=S.leads.filter(l=>l.status==='new'&&(dsel==='all'||istKey(l.createdAt)===dsel));if(!rows.length){toast('No new leads to download for this date');return}
+    else if(a==='csv'){const dsel=dateInfo().sel;const rows=S.leads.filter(l=>l.phone&&l.status==='new'&&(dsel==='all'||istKey(l.createdAt)===dsel));if(!rows.length){toast('No leads with a phone number for this date. Tap Add phone on a lead first, or use Download all leads.');return}
       const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
       const csv=['phone_number,business_name,city,job_title,source,lead_id'].concat(rows.map(l=>[l.phone,l.name,l.city,l.jobTitle,l.source,l.id].map(q).join(','))).join('\n');
       const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const x=document.createElement('a');x.href=u;x.download='leads-'+dsel+'.csv';document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);toast(rows.length+' leads downloaded. Upload this file in Rasen > Outbound > New campaign.')}
+    else if(a==='csvall'){const dsel=dateInfo().sel;const rows=S.leads.filter(l=>dsel==='all'||istKey(l.createdAt)===dsel);if(!rows.length){toast('No leads for this date');return}
+      const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+      const csv=['business_name,city,phone_number,job_title,job_link,source,status'].concat(rows.map(l=>[l.name,l.city,l.phone,l.jobTitle||l.category,l.jobUrl,l.source,l.status].map(q).join(','))).join('\n');
+      const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const x=document.createElement('a');x.href=u;x.download='all-leads-'+dsel+'.csv';document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);toast(rows.length+' leads downloaded')}
+    else if(a==='addphone'){const n=prompt('Phone number (with or without +91)');if(!n)return;await api('lead-update',{id,phone:n});toast('Phone saved');await load()}
     else if(a==='skip'){await api('lead-update',{id,status:'skipped'});await load()}
     else if(a==='unskip'){await api('lead-update',{id,status:'new'});await load()}
     else if(a==='dial'){const number=$('#dp').value,name=$('#dn').value;const r=await api('call',{number,name});toast('Calling '+number);startLive(r.callId,name||r.name,number);await load()}

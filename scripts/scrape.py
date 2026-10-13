@@ -2,7 +2,7 @@
 Finds businesses that are hiring web developers / web designers / e-commerce
 people on Indeed, Naukri and LinkedIn (via the free python-jobspy library), removes
 agencies, and sends the companies to your Lead desk (/api/ingest).
-The Lead desk then finds each phone number with Google Places.
+The Lead desk saves them; you add each phone number by hand (or set a Google Places key to find them automatically).
 """
 import json
 import os
@@ -74,8 +74,6 @@ def main():
         sys.exit(1)
 
     per_day = int(cfg.get("perDay", 100))
-    if cfg.get("placesKey") is False:
-        print("WARNING: GOOGLE_PLACES_API_KEY is not set in Vercel, so no phone numbers can be found and no leads will be saved.")
     cities = cfg.get("cities") or ["Raipur"]
     terms = cfg.get("terms") or ["web developer"]
     print(f"Target {per_day} leads | {len(cities)} cities | {len(terms)} job titles | sites {SITES}")
@@ -89,7 +87,7 @@ def main():
     rows_by_site = {s: 0 for s in SITES}
     prefiltered = 0
     started = time.time()
-    want = per_day * 3  # extra, because many companies will have no phone on Google
+    want = per_day * 2  # a little extra, because some companies are removed on the server
 
     for term, city in combos:
         if len(found) >= want or time.time() - started > MAX_MINUTES * 60:
