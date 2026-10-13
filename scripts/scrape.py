@@ -4,7 +4,8 @@ website (one-time build), using the official Freelancer.com Python SDK
 (https://github.com/freelancer/freelancer-sdk-python), and sends them to your Lead desk
 (/api/ingest). Each lead links to the project post. You add the phone number by hand.
 
-Needs the repo secret FREELANCER_OAUTH_TOKEN (token from developer.freelancer.com).
+FREELANCER_OAUTH_TOKEN (from developer.freelancer.com) is optional. Without it the script
+calls the public, no-login search endpoint of the same API; with it, requests are authenticated.
 """
 import json
 import os
@@ -112,10 +113,6 @@ def buyer_place(u, proj):
 
 
 def main():
-    if not TOKEN:
-        print("FREELANCER_OAUTH_TOKEN is missing. Add it as a repository secret (Settings > Secrets and variables > Actions).")
-        sys.exit(1)
-
     try:
         cfg = http("GET", "/api/config")
     except Exception as e:
@@ -124,7 +121,10 @@ def main():
 
     per_day = int(cfg.get("perDay", 100))
     queries = cfg.get("terms") or DEFAULT_QUERIES
-    session = Session(oauth_token=TOKEN)
+    session = Session(oauth_token=TOKEN or "public")
+    if not TOKEN:  # no token: use the public search endpoint without any login header
+        session.session.headers.pop("Freelancer-OAuth-V1", None)
+        print("No FREELANCER_OAUTH_TOKEN set: using the public search endpoint (no login).")
     print(f"Target {per_day} leads | {len(queries)} search phrases | countries {COUNTRIES or 'worldwide'}")
 
     queries = list(queries)
@@ -221,7 +221,7 @@ def main():
         print("  sample kept names:", sample_kept)
     print(f"Collected {len(leads)} buyers")
     if scanned == 0:
-        print("WARNING: 0 projects came back. Check FREELANCER_OAUTH_TOKEN and FL_COUNTRIES.", errors[:2])
+        print("WARNING: 0 projects came back. If errors mention 401/403/forbidden, Freelancer needs a token for this call; add FREELANCER_OAUTH_TOKEN. Otherwise check FL_COUNTRIES.", errors[:2])
 
     added = 0
     for i in range(0, len(leads), 15):
