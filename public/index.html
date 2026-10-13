@@ -122,10 +122,10 @@ function dateInfo(){const c={};S.leads.forEach(l=>{const k=istKey(l.createdAt);c
 function vLeads(){
   const f=S.lf,di=dateInfo(),sel=di.sel;
   const list=S.leads.filter(l=>(sel==='all'||istKey(l.createdAt)===sel)&&((f==='new'&&l.status==='new')||(f==='called'&&['called','calling'].includes(l.status))||(f==='skipped'&&['skipped','error'].includes(l.status))));
-  const lf=S.lastFetch?'Last run: '+S.lastFetch.added+' added, '+S.lastFetch.skippedAgencies+' agencies removed, '+(S.lastFetch.noPhone||0)+' without a phone'+(S.lastFetch.errors?', '+S.lastFetch.errors+' failed lookups ('+S.lastFetch.lastError+')':'')+', '+when(S.lastFetch.at):'No run yet. Leads arrive daily at about 9:00 AM IST.';
+  const lf=S.lastFetch?'Last run: '+S.lastFetch.added+' added, '+(S.lastFetch.irrelevant||0)+' not web-related removed, '+S.lastFetch.skippedAgencies+' agencies removed, '+(S.lastFetch.noPhone||0)+' without a phone'+(S.lastFetch.errors?', '+S.lastFetch.errors+' failed lookups ('+S.lastFetch.lastError+')':'')+', '+when(S.lastFetch.at):'No run yet. Leads arrive daily at about 9:00 AM IST.';
   let h='<div class="card plain"><div class="row"><div class="grow"><div class="name">Leads</div><div class="sub">'+esc(lf)+'</div></div>'+
     '<button class="btn" data-act="fetch" '+(S.busy?'disabled':'')+'>'+(S.busy?'Starting...':'Fetch leads now')+'</button>'+
-    '<button class="btn alt" data-act="csv">Download CSV for Rasen</button><button class="btn alt" data-act="csvall">Download all leads</button></div></div>';
+    '<button class="btn alt" data-act="csv">Download CSV for Rasen</button><button class="btn alt" data-act="csvall">Download all leads</button><button class="btn alt" data-act="cleanup">Remove non-web leads</button></div></div>';
   h+='<div class="chips">'+[['new','New'],['called','Called'],['skipped','Skipped'],['all','All']].map(x=>'<button class="chip '+(f===x[0]?'on':'')+'" data-act="lf" data-id="'+x[0]+'">'+x[1]+'</button>').join('')+'</div>';
   h+='<div class="chips">'+[['all','All dates ('+S.leads.length+')']].concat(di.keys.slice(0,14).map(k=>[k,dlabel(k)+' ('+di.c[k]+')'])).map(x=>'<button class="chip '+(sel===x[0]?'on':'')+'" data-act="ld" data-id="'+x[0]+'">'+x[1]+'</button>').join('')+'</div>';
   if(!list.length)return h+'<div class="empty">No leads here yet. Tap "Fetch leads now". New leads show up after 5 to 15 minutes.</div>';
@@ -270,6 +270,7 @@ document.addEventListener('click',async e=>{
       const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
       const csv=['business_name,city,phone_number,job_title,job_link,source,status'].concat(rows.map(l=>[l.name,l.city,l.phone,l.jobTitle||l.category,l.jobUrl,l.source,l.status].map(q).join(','))).join('\n');
       const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const x=document.createElement('a');x.href=u;x.download='all-leads-'+dsel+'.csv';document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);toast(rows.length+' leads downloaded')}
+    else if(a==='cleanup'){const r=await api('cleanup',{});toast(r.removed+' non-web leads removed');await load()}
     else if(a==='addphone'){const n=prompt('Phone number (with or without +91)');if(!n)return;await api('lead-update',{id,phone:n});toast('Phone saved');await load()}
     else if(a==='skip'){await api('lead-update',{id,status:'skipped'});await load()}
     else if(a==='unskip'){await api('lead-update',{id,status:'new'});await load()}
