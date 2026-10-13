@@ -93,8 +93,12 @@ async function api(path,body){
 }
 function showLogin(){$('#login').style.display='flex'}
 
-async function load(){
+async function load(quiet){
   const [l,c]=await Promise.all([api('leads'),api('calls')]);
+  const sig=JSON.stringify([l,c]);
+  const same=sig===S.sig;S.sig=sig;
+  // Background refresh: if nothing changed, leave the page exactly as it is (no jumping).
+  if(quiet&&same)return;
   Object.assign(S,{leads:l.leads,auto:l.auto||{},queue:l.queue||0,lastFetch:l.lastFetch,calls:c.calls});
   render();
 }
@@ -110,7 +114,9 @@ function render(){
   const hot=S.calls.filter(c=>c.temperature==='hot').length;
   $('#hstat').textContent=newCount+' new leads, '+S.calls.length+' calls saved, '+hot+' hot';
   const v={leads:vLeads,call:vCall,calls:vCalls,settings:vSettings}[S.tab];
+  const y=window.scrollY;
   $('#main').innerHTML=v();
+  window.scrollTo(0,y); // keep the page where you were reading
 }
 
 /* ---------- Leads ---------- */
@@ -289,7 +295,7 @@ setInterval(()=>{
   if(!pw||document.hidden||S.open)return;
   const ae=document.activeElement;if(ae&&/INPUT|TEXTAREA/.test(ae.tagName))return;
   if(S.tab==='settings')return;
-  load().catch(()=>{});
+  load(true).catch(()=>{});
 },20000);
 </script>
 </body>
