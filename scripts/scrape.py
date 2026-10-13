@@ -70,11 +70,15 @@ WANTS_WEB = re.compile(
     re.I,
 )
 # ...and not an ongoing engagement, an agency outsourcing work, or something that is not a website.
-NOT_ONE_TIME = re.compile(
+NOT_ONE_TIME = re.compile(  # ongoing work or agencies outsourcing (checked on title + description)
     r"\b(full[\s-]?time|part[\s-]?time|long[\s-]?term|permanent|ongoing|monthly\s+retainer|white[\s-]?label|"
     r"outsourc\w*|reseller|resell|our\s+agency|my\s+agency|team\s+of\s+(developers|freelancers)|"
-    r"looking\s+for\s+(an?\s+)?(agency|partner)|hire\s+(a\s+)?(dedicated|team)|dedicated\s+(developer|team)|"
-    r"seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|wordpress\s+plugin|bug\s?fix|fix\s+(my\s+)?(bug|error))\b",
+    r"looking\s+for\s+(an?\s+)?(agency|partner)|hire\s+(a\s+)?(dedicated|team)|dedicated\s+(developer|team))\b",
+    re.I,
+)
+NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
+    r"\b(seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|plugin|bug\s?fix|fix\s+(my\s+)?(bug|error)|"
+    r"data\s+entry|translation|writing|article)\b",
     re.I,
 )
 
@@ -97,13 +101,47 @@ def clean(v):
     return str(v).strip()
 
 
-def buyer_name(u, owner_id, pid):
-    for k in ("public_name", "display_name", "username"):
+URL_RE = re.compile(r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]{1,40}(?:\.[a-z0-9-]{2,})*\.(?:com|in|co\.in|net|org|store|shop|co|biz|info|online|site))\b[^\s]*", re.I)
+SKIP_DOMAINS = re.compile(r"freelancer|google|facebook|instagram|youtube|linkedin|wordpress|shopify|wix|github|twitter|whatsapp|canva|figma|dropbox|drive\.|docs\.|gmail|yahoo|outlook|example", re.I)
+NAME_PATTERNS = [
+    re.compile(r"(?i:(?:business|company|brand|firm|shop|store|clinic|hotel|restaurant|school|institute|startup)\s+name\s*(?:is|:|-)\s*)[\"'“]?([A-Z][\w&'-]*(?:\s+[A-Z&][\w&'-]*){0,3})"),
+    re.compile(r"(?i:(?:we are|i am from|i'm from|i run|i own|we run|my company is|my business is|our company is|our business is|called)\s+)[\"'“]?([A-Z][\w&'-]*(?:\s+[A-Z&][\w&'-]*){0,3})"),
+]
+GENERIC = re.compile(r"^(a|an|the|i|we|my|our|looking|need|want|freelancer|client|small|new|online|website|business|company|startup|team)\b", re.I)
+
+
+def find_site(text):
+    for m in URL_RE.finditer(text):
+        host = m.group(1).lower()
+        if not SKIP_DOMAINS.search(host):
+            return host
+    return ""
+
+
+def find_business_name(text):
+    for rx in NAME_PATTERNS:
+        for m in rx.finditer(text):
+            n = m.group(1).strip(" .,-'\"")
+            if 3 <= len(n) <= 40 and not GENERIC.match(n):
+                return n
+    return ""
+
+
+def pretty_domain(host):
+    stem = host.split(".")[0].replace("-", " ")
+    return stem.title() if stem else ""
+
+
+def profile_name(u):
+    """A real name from the buyer's profile (not a bare username with digits)."""
+    for k in ("public_name", "display_name"):
         n = clean((u or {}).get(k))
-        if n:
+        if len(n) >= 3 and not re.fullmatch(r"[a-z0-9_.-]+\d+[a-z0-9_.-]*", n.lower()):
             return n
-    # Freelancer did not return the buyer's profile: one lead per project, named by project number
-    return "Freelancer buyer %s" % (owner_id or pid)
+    n = clean((u or {}).get("username"))
+    if len(n) >= 5 and not re.search(r"\d", n):
+        return n
+    return ""
 
 
 def buyer_place(u, proj):
@@ -132,7 +170,7 @@ def main():
     random.shuffle(queries)
     found = {}  # buyer slug -> lead
     seen_projects = set()
-    scanned = off_topic = blocked = old = 0
+    scanned = off_topic = blocked = old = no_name = not_india = 0
     started = time.time()
     cutoff = time.time() - MAX_AGE_DAYS * 86400
     want = per_day * 2
@@ -184,7 +222,7 @@ def main():
                     continue
                 title = clean(p.get("title"))
                 text = title + " " + clean(p.get("description") or p.get("preview_description"))[:1500]
-                if not WANTS_WEB.search(title + " " + text) or NOT_ONE_TIME.search(text):
+                if not WANTS_WEB.search(text) or NOT_ONE_TIME.search(text) or NOT_WEBSITE.search(title):
                     off_topic += 1
                     continue
                 owner = p.get("owner_id")
@@ -192,7 +230,16 @@ def main():
                 if not printed_fields:
                     printed_fields = True
                     print("  project fields from Freelancer:", sorted(p.keys())[:30], "| owner_id:", owner, "| users returned:", len(users))
-                name = buyer_name(u, owner, pid)
+                raw = clean(p.get("description") or p.get("preview_description"))
+                site = find_site(raw)
+                name = find_business_name(raw) or (pretty_domain(site) if site else "") or profile_name(u)
+                if not name:
+                    no_name += 1
+                    continue
+                place = buyer_place(u, p)
+                if place and "india" not in place.lower():
+                    not_india += 1
+                    continue
                 if BAD_NAME.search(name):
                     blocked += 1
                     if len(sample_blocked) < 8:
@@ -206,7 +253,8 @@ def main():
                 seo = clean(p.get("seo_url"))
                 found[key] = {
                     "name": name,
-                    "city": buyer_place(u, p),
+                    "city": place,
+                    "website": site,
                     "jobTitle": title[:120],
                     "source": "freelancer",
                     "jobUrl": (BASE + "/projects/" + seo) if seo else (BASE + "/projects/" + str(pid)),
@@ -219,7 +267,8 @@ def main():
 
     leads = list(found.values())
     random.shuffle(leads)
-    print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a one-time website request, {blocked} blocked by name")
+    print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a one-time website request, "
+          f"{no_name} with no business name, {not_india} not in India, {blocked} blocked by name")
     if sample_blocked:
         print("  sample blocked names:", sample_blocked)
     if sample_kept:
