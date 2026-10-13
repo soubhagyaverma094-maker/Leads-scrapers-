@@ -1,8 +1,10 @@
 """
-Finds businesses that are hiring web developers / web designers / e-commerce
-people on Indeed, Naukri and LinkedIn (via the free python-jobspy library), removes
-agencies, and sends the companies to your Lead desk (/api/ingest).
-The Lead desk saves them; you add each phone number by hand (or set a Google Places key to find them automatically).
+Finds people and businesses that have POSTED a project on Freelancer.com asking for a
+website (one-time build), using the official Freelancer.com Python SDK
+(https://github.com/freelancer/freelancer-sdk-python), and sends them to your Lead desk
+(/api/ingest). Each lead links to the project post. You add the phone number by hand.
+
+Needs the repo secret FREELANCER_OAUTH_TOKEN (token from developer.freelancer.com).
 """
 import json
 import os
@@ -12,14 +14,30 @@ import sys
 import time
 import urllib.request
 
-from jobspy import scrape_jobs
+from freelancersdk.session import Session
+from freelancersdk.resources.projects.projects import search_projects
+from freelancersdk.resources.projects.exceptions import ProjectsNotFoundException
+from freelancersdk.resources.projects.helpers import (
+    create_search_projects_filter,
+    create_get_projects_user_details_object,
+)
 
 APP = os.environ["APP_URL"].rstrip("/")
 KEY = os.environ["INGEST_SECRET"]
+TOKEN = os.environ.get("FREELANCER_OAUTH_TOKEN", "").strip()
 RUN_ID = "run_" + os.environ.get("RUN_ID", str(int(time.time())))
-SITES = [x.strip() for x in os.environ.get("SITES", "indeed,naukri,linkedin").split(",") if x.strip()]
-COUNTRY = os.environ.get("COUNTRY", "India")
+# Buyer country codes to keep (Freelancer uses lowercase codes). Empty = worldwide.
+COUNTRIES = [c.strip().lower() for c in os.environ.get("FL_COUNTRIES", "in").split(",") if c.strip()]
+MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "14"))
+PAGES = int(os.environ.get("FL_PAGES", "3"))  # pages of 50 results per search phrase
 MAX_MINUTES = 20
+BASE = "https://www.freelancer.com"
+
+DEFAULT_QUERIES = [
+    "need a website", "build a website", "website for my business", "business website",
+    "wordpress website", "ecommerce website", "shopify store", "website redesign",
+    "landing page", "company website", "portfolio website", "website development",
+]
 
 # Only companies whose NAME contains one of these words/phrases are removed.
 # Matching is case-insensitive and whole-word, so "AI" blocks "AI Labs" but not "Rai Salon",
@@ -44,6 +62,22 @@ BAD_NAME = re.compile(
 )
 
 
+# The project must be asking for a website / web build...
+WANTS_WEB = re.compile(
+    r"\b(web\s?site|web\s?page|web\s?app|landing\s?page|wordpress|woocommerce|shopify|wix|webflow|squarespace|"
+    r"e-?commerce|online\s+(store|shop)|web\s+(design|development|developer)|html|php|laravel|react|next\.?js)\b",
+    re.I,
+)
+# ...and not an ongoing engagement, an agency outsourcing work, or something that is not a website.
+NOT_ONE_TIME = re.compile(
+    r"\b(full[\s-]?time|part[\s-]?time|long[\s-]?term|permanent|ongoing|monthly\s+retainer|white[\s-]?label|"
+    r"outsourc\w*|reseller|resell|our\s+agency|my\s+agency|team\s+of\s+(developers|freelancers)|"
+    r"looking\s+for\s+(an?\s+)?(agency|partner)|hire\s+(a\s+)?(dedicated|team)|dedicated\s+(developer|team)|"
+    r"seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|wordpress\s+plugin|bug\s?fix|fix\s+(my\s+)?(bug|error))\b",
+    re.I,
+)
+
+
 def http(method, path, body=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
@@ -62,92 +96,138 @@ def clean(v):
     return str(v).strip()
 
 
-def slug(x):
-    return re.sub(r"[^a-z0-9]+", "-", x.lower()).strip("-")
+def buyer_name(u, owner_id):
+    for k in ("public_name", "display_name", "username"):
+        n = clean((u or {}).get(k))
+        if n:
+            return n
+    return "Freelancer client %s" % owner_id
+
+
+def buyer_place(u, proj):
+    loc = (u or {}).get("location") or proj.get("location") or {}
+    city = clean(loc.get("city"))
+    country = clean((loc.get("country") or {}).get("name"))
+    return ", ".join(x for x in (city, country) if x)
 
 
 def main():
+    if not TOKEN:
+        print("FREELANCER_OAUTH_TOKEN is missing. Add it as a repository secret (Settings > Secrets and variables > Actions).")
+        sys.exit(1)
+
     try:
         cfg = http("GET", "/api/config")
-    except Exception as e:  # keep going with defaults if the app is unreachable
+    except Exception as e:
         print("Could not read settings from the app:", e)
         sys.exit(1)
 
     per_day = int(cfg.get("perDay", 100))
-    cities = cfg.get("cities") or ["Raipur"]
-    terms = cfg.get("terms") or ["web developer"]
-    print(f"Target {per_day} leads | {len(cities)} cities | {len(terms)} job titles | sites {SITES}")
+    queries = cfg.get("terms") or DEFAULT_QUERIES
+    session = Session(oauth_token=TOKEN)
+    print(f"Target {per_day} leads | {len(queries)} search phrases | countries {COUNTRIES or 'worldwide'}")
 
-    combos = [(t, c) for t in terms for c in cities]
-    random.shuffle(combos)
-
-    found = {}  # company slug -> lead
-    blocked = {}  # company slug -> name (unique companies removed by the name filter)
-    raw_rows = 0
-    rows_by_site = {s: 0 for s in SITES}
-    prefiltered = 0
+    queries = list(queries)
+    random.shuffle(queries)
+    found = {}  # buyer slug -> lead
+    seen_projects = set()
+    scanned = off_topic = blocked = old = 0
     started = time.time()
-    want = per_day * 2  # a little extra, because some companies are removed on the server
+    cutoff = time.time() - MAX_AGE_DAYS * 86400
+    want = per_day * 2
+    errors = []
+    sample_kept, sample_blocked = [], []
 
-    for term, city in combos:
+    for q in queries:
         if len(found) >= want or time.time() - started > MAX_MINUTES * 60:
             break
-        for site in SITES:
+        for page in range(PAGES):
+            flt = create_search_projects_filter(
+                sort_field="time_updated",
+                or_search_query=True,
+                countries=COUNTRIES or None,
+                project_types=["fixed"],
+            )
             try:
-                df = scrape_jobs(
-                    site_name=[site],
-                    search_term=term,
-                    location=f"{city}, {COUNTRY}",
-                    results_wanted=25,
-                    hours_old=24 * 7,
-                    country_indeed=COUNTRY,
+                res = search_projects(
+                    session,
+                    query=q,
+                    search_filter=flt,
+                    project_details={"full_description": True},
+                    user_details=create_get_projects_user_details_object(basic=True, location=True),
+                    limit=50,
+                    offset=page * 50,
+                    active_only=True,
                 )
+            except ProjectsNotFoundException as e:
+                errors.append(str(getattr(e, "message", e)))
+                print(f"  search failed for '{q}': {errors[-1][:150]}")
+                break
             except Exception as e:
-                print(f"  {site} failed for '{term}' in {city}: {str(e)[:100]}")
-                continue
-            if df is None or len(df) == 0:
-                continue
-            rows = df.to_dict("records")
-            raw_rows += len(rows)
-            rows_by_site[site] = rows_by_site.get(site, 0) + len(rows)
-            for row in rows:
-                name = clean(row.get("company"))
-                if not name:
+                errors.append(str(e))
+                print(f"  search error for '{q}': {str(e)[:150]}")
+                break
+            projects = (res or {}).get("projects") or []
+            users = (res or {}).get("users") or {}
+            if not projects:
+                break
+            for p in projects:
+                pid = p.get("id")
+                if pid in seen_projects:
                     continue
-                key = slug(name)
-                if key in found or key in blocked:
+                seen_projects.add(pid)
+                scanned += 1
+                if (p.get("time_submitted") or 0) < cutoff:
+                    old += 1
                     continue
+                title = clean(p.get("title"))
+                text = title + " " + clean(p.get("description") or p.get("preview_description"))[:1500]
+                if not WANTS_WEB.search(title + " " + text) or NOT_ONE_TIME.search(text):
+                    off_topic += 1
+                    continue
+                owner = p.get("owner_id")
+                u = users.get(str(owner)) or users.get(owner) or {}
+                name = buyer_name(u, owner)
                 if BAD_NAME.search(name):
-                    blocked[key] = name
-                    prefiltered = len(blocked)
+                    blocked += 1
+                    if len(sample_blocked) < 8:
+                        sample_blocked.append(name)
                     continue
+                key = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                if key in found:
+                    continue
+                if len(sample_kept) < 8:
+                    sample_kept.append(name)
+                seo = clean(p.get("seo_url"))
                 found[key] = {
                     "name": name,
-                    "city": city,
-                    "jobTitle": clean(row.get("title")),
-                    "source": site,
-                    "jobUrl": clean(row.get("job_url")),
-                    "email": clean(row.get("emails")).split(",")[0].strip(),
+                    "city": buyer_place(u, p),
+                    "jobTitle": title[:120],
+                    "source": "freelancer",
+                    "jobUrl": (BASE + "/projects/" + seo) if seo else (BASE + "/projects/" + str(pid)),
+                    "email": "",
                 }
-            time.sleep(1)
-        print(f"{term} / {city}: {len(found)} companies so far")
+            time.sleep(0.5)
+            if len(projects) < 50:
+                break
+        print(f"'{q}': {len(found)} buyers so far")
 
     leads = list(found.values())
     random.shuffle(leads)
-    print(f"Job posts scanned: {raw_rows} {rows_by_site}")
-    print(f"Collected {len(leads)} companies, {prefiltered} blocked by name filter before sending")
-    if blocked:
-        print("  Sample BLOCKED names:", " | ".join(list(blocked.values())[:25]))
-    if leads:
-        print("  Sample KEPT names:", " | ".join(l["name"] for l in leads[:25]))
-    if raw_rows == 0:
-        print("  WARNING: the job sites returned 0 posts. They may be blocking GitHub's servers, or the job titles/cities in Settings are wrong.")
+    print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a one-time website request, {blocked} blocked by name")
+    if sample_blocked:
+        print("  sample blocked names:", sample_blocked)
+    if sample_kept:
+        print("  sample kept names:", sample_kept)
+    print(f"Collected {len(leads)} buyers")
+    if scanned == 0:
+        print("WARNING: 0 projects came back. Check FREELANCER_OAUTH_TOKEN and FL_COUNTRIES.", errors[:2])
 
     added = 0
     for i in range(0, len(leads), 15):
         batch = leads[i : i + 15]
         try:
-            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": prefiltered if i == 0 else 0})
+            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": blocked if i == 0 else 0})
         except Exception as e:
             print("Send failed:", e)
             continue
@@ -157,8 +237,10 @@ def main():
             break
 
     if not leads:
-        http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": prefiltered})
+        http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": blocked})
     print("Done. Leads saved:", added)
+    if scanned == 0 and errors:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -14,9 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install python-jobspy
+      - name: Install the official Freelancer.com SDK
+        run: pip install freelancersdk || pip install "git+https://github.com/freelancer/freelancer-sdk-python.git"
       - run: python scripts/scrape.py
         env:
           APP_URL: ${{ secrets.APP_URL }}
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          FREELANCER_OAUTH_TOKEN: ${{ secrets.FREELANCER_OAUTH_TOKEN }}
           RUN_ID: ${{ github.run_id }}

@@ -138,7 +138,7 @@ function vLeads(){
   h+=list.slice(0,150).map(l=>{
     const t=l.temperature&&l.status==='called'?' <span class="tag '+esc(l.temperature)+'">'+esc(TEMPS[l.temperature]||'')+'</span>':'';
     return '<div class="card"><div class="name">'+esc(l.name)+t+'</div>'+
-      '<div class="sub">'+(l.jobTitle?'Hiring: '+(l.jobUrl?'<a href="'+esc(l.jobUrl)+'" target="_blank" rel="noopener">'+esc(l.jobTitle)+'</a>':esc(l.jobTitle)):esc(l.category))+(l.source?' on '+esc(l.source):'')+(l.city?' | '+esc(l.city):'')+'</div>'+
+      '<div class="sub">'+(l.jobTitle?'Wants: '+(l.jobUrl?'<a href="'+esc(l.jobUrl)+'" target="_blank" rel="noopener">'+esc(l.jobTitle)+'</a>':esc(l.jobTitle)):esc(l.category))+(l.source?' on '+esc(l.source):'')+(l.city?' | '+esc(l.city):'')+'</div>'+
       '<div class="sub">'+(l.phone?'<a href="tel:'+esc(l.phone)+'">'+esc(l.phone)+'</a>':'<span class="tag flag">No phone yet</span> <a href="https://www.google.com/search?q='+encodeURIComponent(l.name+' '+(l.city||'')+' contact number')+'" target="_blank" rel="noopener">Find phone</a>')+' '+(l.website?'<a href="'+esc(l.website)+'" target="_blank" rel="noopener">website</a>':'<span class="tag flag">No website</span>')+'</div>'+
       (l.error?'<div class="sub" style="color:var(--hot)">'+esc(l.error)+'</div>':'')+
       '<div class="row" style="margin-top:8px">'+
@@ -227,7 +227,7 @@ function vCalls(){
         (c.reason?'<p style="margin:6px 0"><b>Why '+esc((TEMPS[c.temperature]||'').toLowerCase())+':</b> '+esc(c.reason)+'</p>':'')+
         (c.nextStep?'<p style="margin:6px 0"><b>Next step:</b> '+esc(c.nextStep)+'</p>':'')+
         '<div class="sub">Ended: '+esc(c.endedReason||'unknown')+'</div>'+
-        '<div class="sub">'+[c.jobTitle?'Hiring: '+esc(c.jobTitle):'',c.source?'Source: '+esc(c.source):'',c.city?esc(c.city):'',c.address?esc(c.address):''].filter(Boolean).join(' | ')+'</div>'+
+        '<div class="sub">'+[c.jobTitle?'Wants: '+esc(c.jobTitle):'',c.source?'Source: '+esc(c.source):'',c.city?esc(c.city):'',c.address?esc(c.address):''].filter(Boolean).join(' | ')+'</div>'+
         '<div class="sub">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener">Website</a> ':'')+(c.email?'<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>':'')+'</div>'+
         (c.transcript?'<pre>'+esc(c.transcript)+'</pre>':'')+
         '<div class="row"><a class="btn sm alt" style="display:inline-flex;align-items:center;text-decoration:none" href="tel:'+esc(c.phone)+'">Call myself</a>'+
@@ -248,8 +248,8 @@ function vSettings(){
   return '<h2>Lead settings</h2><div class="card plain">'+
     '<label for="sn">Leads per day</label><input id="sn" type="number" min="1" max="300" value="'+esc(s.perDay)+'">'+
     '<label for="sc">Cities to search (one per line)</label><textarea id="sc">'+esc(s.cities.join('\n'))+'</textarea>'+
-    '<label for="sk">Job titles to search (one per line)</label><textarea id="sk">'+esc(s.terms.join('\n'))+'</textarea>'+
-    '<p class="sub">A business hiring for these web roles on Indeed, Naukri or LinkedIn becomes a website lead. Agencies, marketing, software, web and staffing companies are removed automatically.</p>'+
+    '<label for="sk">Freelancer.com search phrases (one per line)</label><textarea id="sk">'+esc(s.terms.join('\n'))+'</textarea>'+
+    '<p class="sub">Someone who posted a project on Freelancer.com asking for a website becomes a lead. Search phrases above are what the daily run looks for; the city list is not used. Agencies, marketing, software, web and staffing names are removed automatically.</p>'+
     '<p style="margin:12px 0 0"><button class="btn" data-act="savesettings" style="width:100%">Save settings</button></p></div>'+
     '<div class="card plain"><button class="btn alt" data-act="logout" style="width:100%">Sign out</button></div>';
 }
