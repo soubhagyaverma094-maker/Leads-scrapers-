@@ -97,12 +97,13 @@ def clean(v):
     return str(v).strip()
 
 
-def buyer_name(u, owner_id):
+def buyer_name(u, owner_id, pid):
     for k in ("public_name", "display_name", "username"):
         n = clean((u or {}).get(k))
         if n:
             return n
-    return "Freelancer client %s" % owner_id
+    # Freelancer did not return the buyer's profile: one lead per project, named by project number
+    return "Freelancer buyer %s" % (owner_id or pid)
 
 
 def buyer_place(u, proj):
@@ -136,6 +137,7 @@ def main():
     cutoff = time.time() - MAX_AGE_DAYS * 86400
     want = per_day * 2
     errors = []
+    printed_fields = False
     sample_kept, sample_blocked = [], []
 
     for q in queries:
@@ -187,7 +189,10 @@ def main():
                     continue
                 owner = p.get("owner_id")
                 u = users.get(str(owner)) or users.get(owner) or {}
-                name = buyer_name(u, owner)
+                if not printed_fields:
+                    printed_fields = True
+                    print("  project fields from Freelancer:", sorted(p.keys())[:30], "| owner_id:", owner, "| users returned:", len(users))
+                name = buyer_name(u, owner, pid)
                 if BAD_NAME.search(name):
                     blocked += 1
                     if len(sample_blocked) < 8:
