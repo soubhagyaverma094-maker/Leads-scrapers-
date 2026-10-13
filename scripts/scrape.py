@@ -74,6 +74,8 @@ def main():
         sys.exit(1)
 
     per_day = int(cfg.get("perDay", 100))
+    if cfg.get("placesKey") is False:
+        print("WARNING: GOOGLE_PLACES_API_KEY is not set in Vercel, so no phone numbers can be found and no leads will be saved.")
     cities = cfg.get("cities") or ["Raipur"]
     terms = cfg.get("terms") or ["web developer"]
     print(f"Target {per_day} leads | {len(cities)} cities | {len(terms)} job titles | sites {SITES}")

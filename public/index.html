@@ -122,7 +122,7 @@ function dateInfo(){const c={};S.leads.forEach(l=>{const k=istKey(l.createdAt);c
 function vLeads(){
   const f=S.lf,di=dateInfo(),sel=di.sel;
   const list=S.leads.filter(l=>(sel==='all'||istKey(l.createdAt)===sel)&&((f==='new'&&l.status==='new')||(f==='called'&&['called','calling'].includes(l.status))||(f==='skipped'&&['skipped','error'].includes(l.status))));
-  const lf=S.lastFetch?'Last run: '+S.lastFetch.added+' added, '+S.lastFetch.skippedAgencies+' agencies removed, '+(S.lastFetch.noPhone||0)+' without a phone, '+when(S.lastFetch.at):'No run yet. Leads arrive daily at about 9:00 AM IST.';
+  const lf=S.lastFetch?'Last run: '+S.lastFetch.added+' added, '+S.lastFetch.skippedAgencies+' agencies removed, '+(S.lastFetch.noPhone||0)+' without a phone'+(S.lastFetch.errors?', '+S.lastFetch.errors+' failed lookups ('+S.lastFetch.lastError+')':'')+', '+when(S.lastFetch.at):'No run yet. Leads arrive daily at about 9:00 AM IST.';
   let h='<div class="card plain"><div class="row"><div class="grow"><div class="name">Leads</div><div class="sub">'+esc(lf)+'</div></div>'+
     '<button class="btn" data-act="fetch" '+(S.busy?'disabled':'')+'>'+(S.busy?'Starting...':'Fetch leads now')+'</button>'+
     '<button class="btn alt" data-act="csv">Download CSV for Rasen</button></div></div>';
