@@ -29,15 +29,21 @@ TOKEN = os.environ.get("FREELANCER_OAUTH_TOKEN", "").strip()
 RUN_ID = "run_" + os.environ.get("RUN_ID", str(int(time.time())))
 # Buyer country codes to keep (Freelancer uses lowercase codes). Empty = worldwide.
 COUNTRIES = [c.strip().lower() for c in os.environ.get("FL_COUNTRIES", "in").split(",") if c.strip()]
-MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "14"))
-PAGES = int(os.environ.get("FL_PAGES", "3"))  # pages of 50 results per search phrase
-MAX_MINUTES = 20
+MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
+PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
+MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
+ALLOW_PROFILE_NAME = os.environ.get("FL_ALLOW_PROFILE_NAME", "") == "1"  # off: a business name is required
 
 DEFAULT_QUERIES = [
     "need a website", "build a website", "website for my business", "business website",
     "wordpress website", "ecommerce website", "shopify store", "website redesign",
     "landing page", "company website", "portfolio website", "website development",
+    "create a website", "design a website", "new website", "website for my company",
+    "online store website", "woocommerce website", "wix website", "webflow website",
+    "restaurant website", "clinic website", "real estate website", "furniture website",
+    "interior design website", "school website", "hotel website", "travel website",
+    "small business website", "static website", "responsive website", "website revamp",
 ]
 
 # Only companies whose NAME contains one of these words/phrases are removed.
@@ -65,11 +71,10 @@ BAD_NAME = re.compile(
 
 # The project must be asking for a website / web build...
 WANTS_WEB = re.compile(
-    r"\b(web\s?site|web\s?page|web\s?app|landing\s?page|wordpress|woocommerce|shopify|wix|webflow|squarespace|"
-    r"e-?commerce|online\s+(store|shop)|web\s+(design|development|developer)|html|php|laravel|react|next\.?js)\b",
+    r"\b(web\s?site|web\s?page|landing\s?page|wordpress|woocommerce|shopify|wix|webflow|squarespace|"
+    r"e-?commerce|online\s+(store|shop)|web\s+(design|development|developer|designer))\b",
     re.I,
 )
-# ...and not an ongoing engagement, an agency outsourcing work, or something that is not a website.
 NOT_ONE_TIME = re.compile(  # ongoing work or agencies outsourcing (checked on title + description)
     r"\b(full[\s-]?time|part[\s-]?time|long[\s-]?term|permanent|ongoing|monthly\s+retainer|white[\s-]?label|"
     r"outsourc\w*|reseller|resell|our\s+agency|my\s+agency|team\s+of\s+(developers|freelancers)|"
@@ -78,7 +83,7 @@ NOT_ONE_TIME = re.compile(  # ongoing work or agencies outsourcing (checked on t
 )
 NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
     r"\b(seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|plugin|bug\s?fix|fix\s+(my\s+)?(bug|error)|"
-    r"data\s+entry|translation|writing|article)\b",
+    r"web\s?app|saas|crm|erp|software|dashboard|api|chatbot|data\s+entry|translation|writing|article)\b",
     re.I,
 )
 
@@ -158,35 +163,54 @@ def main():
         print("Could not read settings from the app:", e)
         sys.exit(1)
 
-    per_day = int(cfg.get("perDay", 100))
-    queries = cfg.get("terms") or DEFAULT_QUERIES
+    per_day = int(cfg.get("perDay", 50))
+    queries = list(cfg.get("terms") or [])
+    queries += [q for q in DEFAULT_QUERIES if q.lower() not in {x.lower() for x in queries}]
     session = Session(oauth_token=TOKEN or "public")
     if not TOKEN:  # no token: use the public search endpoint without any login header
         session.session.headers.pop("Freelancer-OAuth-V1", None)
         print("No FREELANCER_OAUTH_TOKEN set: using the public search endpoint (no login).")
-    print(f"Target {per_day} leads | {len(queries)} search phrases | countries {COUNTRIES or 'worldwide'}")
+    print(f"Target {per_day} leads with a business name | {len(queries)} search phrases | countries {COUNTRIES or 'worldwide'}")
 
-    queries = list(queries)
-    random.shuffle(queries)
-    found = {}  # buyer slug -> lead
+    sent_keys = set()
     seen_projects = set()
     scanned = off_topic = blocked = old = no_name = not_india = 0
     started = time.time()
     cutoff = time.time() - MAX_AGE_DAYS * 86400
-    want = per_day * 2
     errors = []
     printed_fields = False
     sample_kept, sample_blocked = [], []
+    state = {"saved": 0, "full": False, "usedToday": 0, "prefiltered_sent": False, "sent": 0}
+    pending = []
+
+    def flush(force=False):
+        """Send collected leads to the Lead desk; it saves them and tells us when today's target is reached."""
+        while pending and (force or len(pending) >= 10) and not state["full"]:
+            batch = pending[:15]
+            del pending[:15]
+            try:
+                res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": 0 if state["prefiltered_sent"] else blocked})
+            except Exception as e:
+                print("Send failed:", e)
+                continue
+            state["prefiltered_sent"] = True
+            state["sent"] += len(batch)
+            state["saved"] = res.get("added", state["saved"])
+            state["usedToday"] = res.get("usedToday", state["usedToday"])
+            state["full"] = bool(res.get("full"))
+            print(f"  sent {state['sent']} | saved this run: {state['saved']} | today {state['usedToday']}/{per_day}")
 
     for q in queries:
-        if len(found) >= want or time.time() - started > MAX_MINUTES * 60:
+        if state["full"] or time.time() - started > MAX_MINUTES * 60:
             break
         for page in range(PAGES):
+            if state["full"] or time.time() - started > MAX_MINUTES * 60:
+                break
             flt = create_search_projects_filter(
                 sort_field="time_updated",
                 or_search_query=True,
                 countries=COUNTRIES or None,
-                project_types=["fixed"],
+                project_types=["fixed", "hourly"],
             )
             try:
                 res = search_projects(
@@ -221,7 +245,8 @@ def main():
                     old += 1
                     continue
                 title = clean(p.get("title"))
-                text = title + " " + clean(p.get("description") or p.get("preview_description"))[:1500]
+                raw = clean(p.get("description") or p.get("preview_description"))
+                text = title + " " + raw[:1500]
                 if not WANTS_WEB.search(text) or NOT_ONE_TIME.search(text) or NOT_WEBSITE.search(title):
                     off_topic += 1
                     continue
@@ -230,9 +255,11 @@ def main():
                 if not printed_fields:
                     printed_fields = True
                     print("  project fields from Freelancer:", sorted(p.keys())[:30], "| owner_id:", owner, "| users returned:", len(users))
-                raw = clean(p.get("description") or p.get("preview_description"))
                 site = find_site(raw)
-                name = find_business_name(raw) or (pretty_domain(site) if site else "") or profile_name(u)
+                # A real business name: written in the post, or taken from the business website link in it.
+                name = find_business_name(raw) or (pretty_domain(site) if site else "")
+                if not name and ALLOW_PROFILE_NAME:
+                    name = profile_name(u)
                 if not name:
                     no_name += 1
                     continue
@@ -246,12 +273,13 @@ def main():
                         sample_blocked.append(name)
                     continue
                 key = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-                if key in found:
+                if key in sent_keys:
                     continue
+                sent_keys.add(key)
                 if len(sample_kept) < 8:
                     sample_kept.append(name)
                 seo = clean(p.get("seo_url"))
-                found[key] = {
+                pending.append({
                     "name": name,
                     "city": place,
                     "website": site,
@@ -259,40 +287,30 @@ def main():
                     "source": "freelancer",
                     "jobUrl": (BASE + "/projects/" + seo) if seo else (BASE + "/projects/" + str(pid)),
                     "email": "",
-                }
+                })
+            flush()
             time.sleep(0.5)
             if len(projects) < 50:
                 break
-        print(f"'{q}': {len(found)} buyers so far")
+        print(f"'{q}': {len(sent_keys)} named buyers found so far")
+    flush(force=True)
 
-    leads = list(found.values())
-    random.shuffle(leads)
-    print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a one-time website request, "
+    print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a website request, "
           f"{no_name} with no business name, {not_india} not in India, {blocked} blocked by name")
     if sample_blocked:
         print("  sample blocked names:", sample_blocked)
     if sample_kept:
         print("  sample kept names:", sample_kept)
-    print(f"Collected {len(leads)} buyers")
-    if scanned == 0:
-        print("WARNING: 0 projects came back. If errors mention 401/403/forbidden, Freelancer needs a token for this call; add FREELANCER_OAUTH_TOKEN. Otherwise check FL_COUNTRIES.", errors[:2])
-
-    added = 0
-    for i in range(0, len(leads), 15):
-        batch = leads[i : i + 15]
+    if sent_keys == set() and not state["sent"]:
         try:
-            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": blocked if i == 0 else 0})
+            http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": blocked})
         except Exception as e:
             print("Send failed:", e)
-            continue
-        added = res.get("added", added)
-        print(f"Sent {i + len(batch)}/{len(leads)} | saved so far: {added}")
-        if res.get("full"):
-            break
-
-    if not leads:
-        http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": blocked})
-    print("Done. Leads saved:", added)
+    if not state["full"]:
+        print(f"Searched everything available and found {state['usedToday']} of {per_day} for today.")
+    if scanned == 0:
+        print("WARNING: 0 projects came back. If errors mention 401/403/forbidden, Freelancer needs a token for this call; add FREELANCER_OAUTH_TOKEN. Otherwise check FL_COUNTRIES.", errors[:2])
+    print("Done. Leads saved:", state["saved"])
     if scanned == 0 and errors:
         sys.exit(1)
 
