@@ -115,6 +115,15 @@ NAME_PATTERNS = [
 GENERIC = re.compile(r"^(a|an|the|i|we|my|our|looking|need|want|freelancer|client|small|new|online|website|business|company|startup|team)\b", re.I)
 
 
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s-]?)?0?([6-9]\d{4}[\s-]?\d{5})(?!\d)")
+
+
+def find_phone(text):
+    """An Indian mobile number written in the project text, as +91XXXXXXXXXX (or empty)."""
+    m = PHONE_RE.search(text)
+    return "+91" + re.sub(r"\D", "", m.group(1)) if m else ""
+
+
 def find_site(text):
     for m in URL_RE.finditer(text):
         host = m.group(1).lower()
@@ -256,10 +265,13 @@ def main():
                     printed_fields = True
                     print("  project fields from Freelancer:", sorted(p.keys())[:30], "| owner_id:", owner, "| users returned:", len(users))
                 site = find_site(raw)
-                # A real business name: written in the post, or taken from the business website link in it.
+                # A business name (written in the post or taken from a website link in it), or else a phone number in the post.
                 name = find_business_name(raw) or (pretty_domain(site) if site else "")
                 if not name and ALLOW_PROFILE_NAME:
                     name = profile_name(u)
+                phone = find_phone(raw)
+                if not name and phone:  # a phone number is enough: no business name needed
+                    name = "Freelancer buyer %s" % pid
                 if not name:
                     no_name += 1
                     continue
@@ -283,6 +295,7 @@ def main():
                     "name": name,
                     "city": place,
                     "website": site,
+                    "phone": phone,
                     "jobTitle": title[:120],
                     "source": "freelancer",
                     "jobUrl": (BASE + "/projects/" + seo) if seo else (BASE + "/projects/" + str(pid)),
