@@ -207,7 +207,7 @@ def main():
             state["saved"] = res.get("added", state["saved"])
             state["usedToday"] = res.get("usedToday", state["usedToday"])
             state["full"] = bool(res.get("full"))
-            print(f"  sent {state['sent']} | saved this run: {state['saved']} | today {state['usedToday']}/{per_day}")
+            print(f"  sent {state['sent']} | saved this run: {state['saved']} | already in your list: {res.get('duplicates', 0)} | agencies: {res.get('skippedAgencies', 0)} | today {state['usedToday']}/{per_day}")
 
     for q in queries:
         if state["full"] or time.time() - started > MAX_MINUTES * 60:
@@ -314,6 +314,7 @@ def main():
         print("  sample blocked names:", sample_blocked)
     if sample_kept:
         print("  sample kept names:", sample_kept)
+    print(f"Found {len(sent_keys)} qualifying buyers in total, sent {state['sent']} to the Lead desk")
     if sent_keys == set() and not state["sent"]:
         try:
             http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": blocked})
