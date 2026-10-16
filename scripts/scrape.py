@@ -107,7 +107,15 @@ def clean(v):
 
 
 URL_RE = re.compile(r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]{1,40}(?:\.[a-z0-9-]{2,})*\.(?:com|in|co\.in|net|org|store|shop|co|biz|info|online|site))\b[^\s]*", re.I)
-SKIP_DOMAINS = re.compile(r"freelancer|google|facebook|instagram|youtube|linkedin|wordpress|shopify|wix|github|twitter|whatsapp|canva|figma|dropbox|drive\.|docs\.|gmail|yahoo|outlook|example", re.I)
+SKIP_DOMAINS = re.compile(
+    r"freelancer|google|goo\.gl|facebook|fb\.|instagram|youtu|linkedin|wordpress|shopify|wix|github|gitlab|twitter|x\.com|whatsapp|wa\.me|"
+    r"t\.me|telegram|canva|figma|dropbox|drive\.|docs\.|gmail|yahoo|outlook|example|loom|tinyurl|bit\.ly|bitly|zoom|calendly|"
+    r"notion|trello|slack|behance|dribbble|pinterest|medium\.|wetransfer|onedrive|sharepoint|icloud|apple|amazon|flipkart|"
+    r"upwork|fiverr|truelancer|envato|themeforest|squarespace|weebly|webflow|godaddy|hostinger|bluehost|vimeo|tiktok|snapchat|"
+    r"reddit|quora|wikipedia|screenshot|prnt\.sc|imgur|postimg|ibb\.co|cutt\.ly|rebrand|lnkd|mailchi|typeform|jotform|airtable|miro|"
+    r"codepen|codesandbox|replit|vercel|netlify|herokuapp|blogspot|wixsite|myshopify|\.gov|\.edu",
+    re.I,
+)
 NAME_PATTERNS = [
     re.compile(r"(?i:(?:business|company|brand|firm|shop|store|clinic|hotel|restaurant|school|institute|startup)\s+name\s*(?:is|:|-)\s*)[\"'“]?([A-Z][\w&'-]*(?:\s+[A-Z&][\w&'-]*){0,3})"),
     re.compile(r"(?i:(?:we are|i am from|i'm from|i run|i own|we run|my company is|my business is|our company is|our business is|called)\s+)[\"'“]?([A-Z][\w&'-]*(?:\s+[A-Z&][\w&'-]*){0,3})"),
