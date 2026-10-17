@@ -33,7 +33,9 @@ MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
 PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
 MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
-ALLOW_PROFILE_NAME = os.environ.get("FL_ALLOW_PROFILE_NAME", "") == "1"  # off: a business name is required
+# With a token the buyer's real profile name is visible, so use it; FL_ALLOW_PROFILE_NAME=0/1 overrides.
+_apn = os.environ.get("FL_ALLOW_PROFILE_NAME", "")
+ALLOW_PROFILE_NAME = (_apn == "1") if _apn else bool(os.environ.get("FREELANCER_OAUTH_TOKEN", "").strip())
 
 DEFAULT_QUERIES = [
     "need a website", "build a website", "website for my business", "business website",
