@@ -4,5 +4,8 @@
     "api/[action].js": {
       "maxDuration": 60
     }
+  },
+  "git": {
+    "deploymentEnabled": false
   }
 }
