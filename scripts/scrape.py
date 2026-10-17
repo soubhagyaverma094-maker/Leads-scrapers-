@@ -33,6 +33,7 @@ MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
 PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
 MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
+MIN_LEADS = int(os.environ.get("MIN_LEADS", "2"))  # every run should give at least this many (newest website requests if needed)
 # With a token the buyer's real profile name is visible, so use it; FL_ALLOW_PROFILE_NAME=0/1 overrides.
 _apn = os.environ.get("FL_ALLOW_PROFILE_NAME", "")
 ALLOW_PROFILE_NAME = (_apn == "1") if _apn else bool(os.environ.get("FREELANCER_OAUTH_TOKEN", "").strip())
@@ -203,6 +204,7 @@ def main():
     sample_kept, sample_blocked = [], []
     state = {"saved": 0, "full": False, "usedToday": 0, "prefiltered_sent": False, "sent": 0}
     pending = []
+    fallback = []  # website requests from India without a business name/phone: used only if a run would otherwise give nothing
 
     def flush(force=False):
         """Send collected leads to the Lead desk; it saves them and tells us when today's target is reached."""
@@ -286,6 +288,15 @@ def main():
                     name = "Freelancer buyer %s" % pid
                 if not name:
                     no_name += 1
+                    fplace = buyer_place(u, p)
+                    if not (fplace and "india" not in fplace.lower()):
+                        fseo = clean(p.get("seo_url"))
+                        fallback.append({
+                            "name": "Freelancer buyer %s" % pid, "city": fplace, "website": site, "phone": "",
+                            "jobTitle": title[:120], "source": "freelancer",
+                            "jobUrl": (BASE + "/projects/" + fseo) if fseo else (BASE + "/projects/" + str(pid)),
+                            "email": "", "_t": p.get("time_submitted") or 0,
+                        })
                     continue
                 place = buyer_place(u, p)
                 if place and "india" not in place.lower():
@@ -323,6 +334,24 @@ def main():
     for l in pending:
         l.pop("_score", None)
     flush(force=True)
+
+    # Guarantee: if this run saved fewer than MIN_LEADS, add the newest website requests (even without a business name).
+    fallback.sort(key=lambda l: -l["_t"])
+    used_fb = 0
+    while state["saved"] < MIN_LEADS and fallback:
+        batch = fallback[:8]
+        del fallback[:8]
+        for l in batch:
+            l.pop("_t", None)
+        try:
+            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": 0, "bonus": MIN_LEADS - state["saved"]})
+        except Exception as e:
+            print("Send failed:", e)
+            break
+        state["saved"] = res.get("added", state["saved"])
+        state["sent"] += len(batch)
+        used_fb += len(batch)
+        print(f"  fallback: sent {used_fb} newest website requests | saved this run: {state['saved']}")
 
     print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a website request, "
           f"{no_name} with no business name, {not_india} not in India, {blocked} blocked by name")
