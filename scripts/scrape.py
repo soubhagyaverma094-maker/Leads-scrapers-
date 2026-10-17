@@ -83,7 +83,9 @@ NOT_ONE_TIME = re.compile(  # ongoing work or agencies outsourcing (checked on t
 )
 NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
     r"\b(seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|plugin|bug\s?fix|fix\s+(my\s+)?(bug|error)|"
-    r"web\s?app|saas|crm|erp|software|dashboard|api|chatbot|data\s+entry|translation|writing|article)\b",
+    r"web\s?app|saas|crm|erp|software|dashboard|api|chatbot|data\s+entry|translation|writing|article|"
+    r"social\s+media|marketing|marketer|onboarding|agents?|sales|telecall\w*|caller|content|ads?|influencer|"
+    r"instagram|facebook|youtube|manager|executive|recruit\w*|hiring|virtual\s+assistant|photograph\w*|editor)\b",
     re.I,
 )
 
