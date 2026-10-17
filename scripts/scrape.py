@@ -184,7 +184,7 @@ def main():
         print("Could not read settings from the app:", e)
         sys.exit(1)
 
-    per_day = int(cfg.get("perDay", 50))
+    per_day = int(cfg.get("perDay", 6))
     queries = list(cfg.get("terms") or [])
     queries += [q for q in DEFAULT_QUERIES if q.lower() not in {x.lower() for x in queries}]
     session = Session(oauth_token=TOKEN or "public")
@@ -312,12 +312,16 @@ def main():
                     "source": "freelancer",
                     "jobUrl": (BASE + "/projects/" + seo) if seo else (BASE + "/projects/" + str(pid)),
                     "email": "",
+                    "_score": (3 if phone else 0) + (2 if site else 0) + (1 if find_business_name(raw) else 0),
                 })
-            flush()
             time.sleep(0.5)
             if len(projects) < 50:
                 break
         print(f"'{q}': {len(sent_keys)} named buyers found so far")
+    # Send the best first: a phone number, then a website, then a business name written in the post.
+    pending.sort(key=lambda l: -l["_score"])
+    for l in pending:
+        l.pop("_score", None)
     flush(force=True)
 
     print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a website request, "
