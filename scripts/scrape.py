@@ -88,7 +88,8 @@ NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
     r"\b(seo|backlinks?|logo|video|graphic|mobile\s+app|android|ios|game|plugin|bug\s?fix|fix\s+(my\s+)?(bug|error)|"
     r"web\s?app|saas|crm|erp|software|dashboard|api|chatbot|data\s+entry|translation|writing|article|"
     r"social\s+media|marketing|marketer|onboarding|agents?|sales|telecall\w*|caller|content|ads?|influencer|"
-    r"instagram|facebook|youtube|manager|executive|recruit\w*|hiring|virtual\s+assistant|photograph\w*|editor)\b",
+    r"instagram|facebook|youtube|manager|executive|recruit\w*|hiring|virtual\s+assistant|photograph\w*|editor|"
+    r"blogs?|posts|cad|cads|apps?|testing|tester|reporting|platform|3d|jewel\w*|design\s+of)\b",
     re.I,
 )
 
@@ -289,7 +290,8 @@ def main():
                 if not name:
                     no_name += 1
                     fplace = buyer_place(u, p)
-                    if not (fplace and "india" not in fplace.lower()):
+                    title_is_site = WANTS_WEB.search(title) or re.search(r"\b(sites?|stores?|shops?)\b", title, re.I)
+                    if title_is_site and not (fplace and "india" not in fplace.lower()):
                         fseo = clean(p.get("seo_url"))
                         fallback.append({
                             "name": "Freelancer buyer %s" % pid, "city": fplace, "website": site, "phone": "",
