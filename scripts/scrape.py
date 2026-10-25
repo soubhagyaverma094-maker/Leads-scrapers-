@@ -229,7 +229,7 @@ def main():
         print("Could not read settings from the app:", e)
         sys.exit(1)
 
-    per_day = int(cfg.get("perDay", 6))
+    per_day = int(cfg.get("perDay", 50))
     queries = list(cfg.get("terms") or [])
     queries += [q for q in DEFAULT_QUERIES if q.lower() not in {x.lower() for x in queries}]
     session = Session(oauth_token=TOKEN or "public")
