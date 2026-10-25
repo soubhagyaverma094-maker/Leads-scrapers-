@@ -33,6 +33,7 @@ MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
 PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
 MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
+NAMELESS_MAX = int(os.environ.get("NAMELESS_MAX", "10"))  # website requests without a buyer name to add per run (0 = names only)
 ENRICH_MAX = int(os.environ.get("ENRICH_MAX", "0"))  # how many website requests to look the buyer up for
 # With a token the buyer's real profile name is visible, so use it; FL_ALLOW_PROFILE_NAME=0/1 overrides.
 _apn = os.environ.get("FL_ALLOW_PROFILE_NAME", "")
@@ -89,7 +90,8 @@ NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
     r"web\s?app|saas|crm|erp|software|dashboard|api|chatbot|data\s+entry|translation|writing|article|"
     r"social\s+media|marketing|marketer|onboarding|agents?|sales|telecall\w*|caller|content|ads?|influencer|"
     r"instagram|facebook|youtube|manager|executive|recruit\w*|hiring|virtual\s+assistant|photograph\w*|editor|"
-    r"blogs?|posts|cad|cads|apps?|testing|tester|reporting|platform|3d|jewel\w*|design\s+of)\b",
+    r"blogs?|posts|cad|cads|apps?|testing|tester|reporting|platform|3d|jewel\w*|design\s+of|"
+    r"advertis\w*|commercial|cinematic|reels?|animation|promo\w*)\b",
     re.I,
 )
 
@@ -408,6 +410,24 @@ def main():
         flush(force=True)
     flush(force=True)
     print(f"Looked up {looked} more website requests for the buyer's name: {named} had a usable real name.")
+
+    # Nothing (or little) new with a name: add the newest Indian website requests whose buyer name Freelancer hides.
+    # They are named after the request itself, e.g. "Wants: Business Website Development Needed".
+    if NAMELESS_MAX > 0:
+        fb = sorted([l for l in fallback if not l.get("name")], key=lambda l: -l.get("_t", 0))[:NAMELESS_MAX]
+        batch = []
+        for l in fb:
+            pid = l.pop("_pid", "")
+            l.pop("_seo", None); l.pop("_t", None)
+            l["name"] = ("%s #%s" % (l["jobTitle"][:60].strip(), pid[-5:])).strip()
+            batch.append(l)
+        if batch:
+            try:
+                res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": 0})
+                state["saved"] = res.get("added", state["saved"])
+                print(f"  website requests without a buyer name: sent {len(batch)} | saved this run: {state['saved']} | already in your list: {res.get('duplicates', 0)}")
+            except Exception as e:
+                print("Send failed:", e)
 
     print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a website request, "
           f"{no_name} with no business name, {not_india} not in India, {blocked} blocked by name")
