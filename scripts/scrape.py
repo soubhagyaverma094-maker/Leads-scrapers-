@@ -109,12 +109,21 @@ def lookup_owner(seo, debug=False):
             print("  page fetch failed:", str(e)[:120])
         return None
     info = {}
-    m = re.search(r'"owner"\s*:\s*\{[^{}]{0,600}?"(?:public_name|display_name)"\s*:\s*"([^"]{3,60})"', html)
+    m = re.search(r'"(?:owner|employer|client)"\s*:\s*\{[^{}]{0,800}?"(?:public_name|display_name|name)"\s*:\s*"([^"]{3,60})"', html)
     if m:
         info["public_name"] = m.group(1)
-    oid = re.search(r'"(?:owner_id|ownerId)"\s*:\s*(\d{4,})', html)
+    oid = re.search(r'"[A-Za-z_]*(?:owner|employer)[A-Za-z_]*"\s*:\s*(\d{5,})', html, re.I)
     if debug:
         print(f"  page {len(html)} bytes | owner block: {bool(m)} | owner id: {oid.group(1) if oid else None}")
+        seen = 0
+        for mm in re.finditer(r'.{0,70}(?:owner|employer|"username"|/u/[A-Za-z0-9_.-]{3,}).{0,110}', html, re.I):
+            sn = re.sub(r"\s+", " ", mm.group(0))
+            if "function" in sn or sn.count("{") > 8:
+                continue
+            print("    ~", sn[:200])
+            seen += 1
+            if seen >= 8:
+                break
     if not info and oid:
         try:
             d = json.loads(fetch_text(f"{BASE}/api/users/0.1/users/{oid.group(1)}/?compact=true"))
@@ -379,7 +388,7 @@ def main():
         if state["full"] or time.time() - started > MAX_MINUTES * 60 or looked >= ENRICH_MAX:
             break
         looked += 1
-        info = lookup_owner(l["_seo"] or l["_pid"], looked <= 3)
+        info = lookup_owner(l["_seo"] or l["_pid"], looked <= 2)
         nm = profile_name(info) if info else ""
         if not nm or BAD_NAME.search(nm):
             continue
