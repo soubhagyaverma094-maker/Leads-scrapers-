@@ -33,7 +33,7 @@ MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
 PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
 MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
-MIN_LEADS = int(os.environ.get("MIN_LEADS", "2"))  # every run should give at least this many (newest website requests if needed)
+ENRICH_MAX = int(os.environ.get("ENRICH_MAX", "120"))  # how many website requests to look the buyer up for
 # With a token the buyer's real profile name is visible, so use it; FL_ALLOW_PROFILE_NAME=0/1 overrides.
 _apn = os.environ.get("FL_ALLOW_PROFILE_NAME", "")
 ALLOW_PROFILE_NAME = (_apn == "1") if _apn else bool(os.environ.get("FREELANCER_OAUTH_TOKEN", "").strip())
@@ -92,6 +92,40 @@ NOT_WEBSITE = re.compile(  # not a website job (checked on the title only)
     r"blogs?|posts|cad|cads|apps?|testing|tester|reporting|platform|3d|jewel\w*|design\s+of)\b",
     re.I,
 )
+
+
+def fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "en"})
+    with urllib.request.urlopen(req, timeout=25) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def lookup_owner(seo, debug=False):
+    """Find the buyer of a project from its public page: first the owner embedded in the page, else the public user lookup."""
+    try:
+        html = fetch_text(BASE + "/projects/" + str(seo).lstrip("/"))
+    except Exception as e:
+        if debug:
+            print("  page fetch failed:", str(e)[:120])
+        return None
+    info = {}
+    m = re.search(r'"owner"\s*:\s*\{[^{}]{0,600}?"(?:public_name|display_name)"\s*:\s*"([^"]{3,60})"', html)
+    if m:
+        info["public_name"] = m.group(1)
+    oid = re.search(r'"(?:owner_id|ownerId)"\s*:\s*(\d{4,})', html)
+    if debug:
+        print(f"  page {len(html)} bytes | owner block: {bool(m)} | owner id: {oid.group(1) if oid else None}")
+    if not info and oid:
+        try:
+            d = json.loads(fetch_text(f"{BASE}/api/users/0.1/users/{oid.group(1)}/?compact=true"))
+            res = d.get("result") or {}
+            info = {k: res.get(k) for k in ("public_name", "display_name", "username", "location")}
+            if debug:
+                print("  user lookup:", {k: v for k, v in info.items() if k != "location"})
+        except Exception as e:
+            if debug:
+                print("  user lookup failed:", str(e)[:120])
+    return info or None
 
 
 def http(method, path, body=None):
@@ -294,7 +328,7 @@ def main():
                     if title_is_site and not (fplace and "india" not in fplace.lower()):
                         fseo = clean(p.get("seo_url"))
                         fallback.append({
-                            "name": "Freelancer buyer %s" % pid, "city": fplace, "website": site, "phone": "",
+                            "name": "", "_seo": fseo, "_pid": str(pid), "city": fplace, "website": site, "phone": "",
                             "jobTitle": title[:120], "source": "freelancer",
                             "jobUrl": (BASE + "/projects/" + fseo) if fseo else (BASE + "/projects/" + str(pid)),
                             "email": "", "_t": p.get("time_submitted") or 0,
@@ -337,23 +371,34 @@ def main():
         l.pop("_score", None)
     flush(force=True)
 
-    # Guarantee: if this run saved fewer than MIN_LEADS, add the newest website requests (even without a business name).
+    # Still short of today's target: look up WHO posted each remaining website request (public project page, then
+    # the public user lookup). Only buyers with a real name become leads; nameless ones are never saved.
     fallback.sort(key=lambda l: -l["_t"])
-    used_fb = 0
-    while state["saved"] < MIN_LEADS and fallback:
-        batch = fallback[:8]
-        del fallback[:8]
-        for l in batch:
-            l.pop("_t", None)
-        try:
-            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": 0, "bonus": MIN_LEADS - state["saved"]})
-        except Exception as e:
-            print("Send failed:", e)
+    looked = named = 0
+    for l in fallback:
+        if state["full"] or time.time() - started > MAX_MINUTES * 60 or looked >= ENRICH_MAX:
             break
-        state["saved"] = res.get("added", state["saved"])
-        state["sent"] += len(batch)
-        used_fb += len(batch)
-        print(f"  fallback: sent {used_fb} newest website requests | saved this run: {state['saved']}")
+        looked += 1
+        info = lookup_owner(l["_seo"] or l["_pid"], looked <= 3)
+        nm = profile_name(info) if info else ""
+        if not nm or BAD_NAME.search(nm):
+            continue
+        place = buyer_place(info, {})
+        if place and "india" not in place.lower():
+            continue
+        key = re.sub(r"[^a-z0-9]+", "-", nm.lower()).strip("-")
+        if key in sent_keys:
+            continue
+        sent_keys.add(key)
+        named += 1
+        l["name"] = nm
+        l["city"] = place or l["city"]
+        for k in ("_t", "_seo", "_pid"):
+            l.pop(k, None)
+        pending.append(l)
+        flush(force=True)
+    flush(force=True)
+    print(f"Looked up {looked} more website requests for the buyer's name: {named} had a usable real name.")
 
     print(f"Scanned {scanned} projects: {old} too old, {off_topic} not a website request, "
           f"{no_name} with no business name, {not_india} not in India, {blocked} blocked by name")
