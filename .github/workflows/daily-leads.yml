@@ -5,6 +5,10 @@ on:
     - cron: '30 3 * * *'   # 9:00 AM IST: full scan of the last 30 days
     - cron: '15 * * * *'   # every hour: quick look at the newest posts
   workflow_dispatch:        # lets the dashboard button and the Actions tab start it
+    inputs:
+      unnamed:
+        description: 'Also add website requests where Freelancer hides the buyer name (true/false)'
+        default: 'true'
 
 jobs:
   scrape:
@@ -24,5 +28,6 @@ jobs:
           FREELANCER_OAUTH_TOKEN: ${{ secrets.FREELANCER_OAUTH_TOKEN }}
           RUN_ID: ${{ github.run_id }}
           # hourly runs only read the newest pages (fast); the morning run and manual runs scan everything
+          NAMELESS_MAX: ${{ github.event_name == 'workflow_dispatch' && inputs.unnamed != 'false' && '10' || '0' }}
           FL_PAGES: ${{ github.event.schedule == '15 * * * *' && '2' || '6' }}
           FL_MAX_AGE_DAYS: ${{ github.event.schedule == '15 * * * *' && '10' || '30' }}
