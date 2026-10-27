@@ -16,9 +16,9 @@ from jobspy import scrape_jobs
 APP = os.environ["APP_URL"].rstrip("/")
 KEY = os.environ["INGEST_SECRET"]
 RUN_ID = "jobs_" + os.environ.get("RUN_ID", str(int(time.time())))
-SITES = [x.strip() for x in os.environ.get("SITES", "indeed,naukri,linkedin").split(",") if x.strip()]
+SITES = [x.strip() for x in os.environ.get("SITES", "indeed,linkedin").split(",") if x.strip()]
 COUNTRY = os.environ.get("COUNTRY", "India")
-MAX_MINUTES = 20
+MAX_MINUTES = 8
 
 # Only companies whose NAME contains one of these words/phrases are removed.
 # Matching is case-insensitive and whole-word, so "AI" blocks "AI Labs" but not "Rai Salon",
@@ -91,6 +91,25 @@ def main():
     random.shuffle(combos)
 
     found = {}  # company slug -> lead
+    sent = set()
+    state = {"added": 0, "full": False, "pre": 0}
+
+    def send(force=False):
+        """Send companies as soon as there are a few, so nothing is lost if the run is stopped."""
+        todo = [k for k in found if k not in sent]
+        while todo and (force or len(todo) >= 8) and not state["full"]:
+            keys, todo = todo[:15], todo[15:]
+            try:
+                res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [found[k] for k in keys], "preFiltered": 0 if state["pre"] else prefiltered})
+            except Exception as e:
+                print("Send failed:", e)
+                return
+            state["pre"] = 1
+            sent.update(keys)
+            state["added"] = res.get("added", state["added"])
+            state["full"] = bool(res.get("full"))
+            print(f"  sent {len(sent)} | saved so far: {state['added']}")
+
     blocked = {}  # company slug -> name (unique companies removed by the name filter)
     raw_rows = 0
     rows_by_site = {s: 0 for s in SITES}
@@ -107,7 +126,7 @@ def main():
                     site_name=[site],
                     search_term=term,
                     location=f"{city}, {COUNTRY}",
-                    results_wanted=25,
+                    results_wanted=15,
                     hours_old=24 * 7,
                     country_indeed=COUNTRY,
                 )
@@ -141,9 +160,9 @@ def main():
                 }
             time.sleep(1)
         print(f"{term} / {city}: {len(found)} companies so far")
+        send()
 
     leads = list(found.values())
-    random.shuffle(leads)
     print(f"Job posts scanned: {raw_rows} {rows_by_site}")
     print(f"Collected {len(leads)} companies, {prefiltered} blocked by name filter before sending")
     if blocked:
@@ -153,21 +172,10 @@ def main():
     if raw_rows == 0:
         print("  WARNING: the job sites returned 0 posts. They may be blocking GitHub's servers, or the job titles/cities in Settings are wrong.")
 
-    added = 0
-    for i in range(0, len(leads), 15):
-        batch = leads[i : i + 15]
-        try:
-            res = http("POST", "/api/ingest", {"runId": RUN_ID, "leads": batch, "preFiltered": prefiltered if i == 0 else 0})
-        except Exception as e:
-            print("Send failed:", e)
-            continue
-        added = res.get("added", added)
-        print(f"Sent {i + len(batch)}/{len(leads)} | saved so far: {added}")
-        if res.get("full"):
-            break
-
-    if not leads:
+    send(force=True)
+    if not found:
         http("POST", "/api/ingest", {"runId": RUN_ID, "leads": [], "preFiltered": prefiltered})
+    added = state["added"]
     print("Done. Leads saved:", added)
 
 

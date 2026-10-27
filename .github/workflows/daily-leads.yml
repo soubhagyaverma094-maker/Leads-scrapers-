@@ -35,6 +35,7 @@ jobs:
       - name: Job boards (Indeed, Naukri, LinkedIn)
         if: ${{ !cancelled() && github.event.schedule != '15 * * * *' }}
         continue-on-error: true
+        timeout-minutes: 12
         run: |
           pip install python-jobspy
           python scripts/scrape_jobs.py
