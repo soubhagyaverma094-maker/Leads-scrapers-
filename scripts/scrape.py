@@ -33,7 +33,7 @@ MAX_AGE_DAYS = int(os.environ.get("FL_MAX_AGE_DAYS", "30"))
 PAGES = int(os.environ.get("FL_PAGES", "6"))  # pages of 50 results per search phrase
 MAX_MINUTES = 28
 BASE = "https://www.freelancer.com"
-NAMELESS_MAX = int(os.environ.get("NAMELESS_MAX", "10"))  # website requests without a buyer name to add per run (0 = names only)
+NAMELESS_MAX = int(os.environ.get("NAMELESS_MAX", "0"))  # website requests without a buyer name to add per run (0 = names only)
 ENRICH_MAX = int(os.environ.get("ENRICH_MAX", "0"))  # how many website requests to look the buyer up for
 # With a token the buyer's real profile name is visible, so use it; FL_ALLOW_PROFILE_NAME=0/1 overrides.
 _apn = os.environ.get("FL_ALLOW_PROFILE_NAME", "")
